@@ -427,30 +427,30 @@ app.post('/api/contact', async(req, res) => {
 });
 
 // Frontend static serving
+// Frontend static serving
 const distPath = path.join(__dirname, '..', 'dist');
 const assetsPath = path.join(distPath, 'assets');
 const indexPath = path.join(distPath, 'index.html');
 
+console.log('--- Frontend static debug ---');
+console.log('distPath:', distPath);
+console.log('dist exists:', fs.existsSync(distPath));
+console.log('index exists:', fs.existsSync(indexPath));
+console.log('assetsPath:', assetsPath);
+console.log('assets exists:', fs.existsSync(assetsPath));
+
+if (fs.existsSync(assetsPath)) {
+    console.log('assets files:', fs.readdirSync(assetsPath));
+}
+
 if (fs.existsSync(distPath) && fs.existsSync(indexPath)) {
     console.log(`Serving frontend from: ${distPath}`);
-
-    app.use('/assets', (req, res, next) => {
-        const requestedPath = path.normalize(path.join(assetsPath, req.path));
-
-        if (!requestedPath.startsWith(assetsPath)) {
-            return res.status(403).type('text/plain').send('Forbidden');
-        }
-
-        return next();
-    });
 
     app.use(
         '/assets',
         express.static(assetsPath, {
             index: false,
             fallthrough: false,
-            immutable: isProduction,
-            maxAge: isProduction ? '1y' : 0,
             setHeaders(res, filePath) {
                 if (filePath.endsWith('.js')) {
                     res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
@@ -463,29 +463,10 @@ if (fs.existsSync(distPath) && fs.existsSync(indexPath)) {
         })
     );
 
-    app.use((err, req, res, next) => {
-        if (req.path.startsWith('/assets/')) {
-            const status = err.status || err.statusCode || 404;
-            return res.status(status).type('text/plain').send('Asset not found');
-        }
-
-        return next(err);
-    });
-
     app.use(
         express.static(distPath, {
             index: false,
             fallthrough: true,
-            maxAge: isProduction ? '1h' : 0,
-            setHeaders(res, filePath) {
-                if (filePath.endsWith('.js')) {
-                    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-                }
-
-                if (filePath.endsWith('.css')) {
-                    res.setHeader('Content-Type', 'text/css; charset=utf-8');
-                }
-            },
         })
     );
 
