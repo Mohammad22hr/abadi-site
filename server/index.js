@@ -13,10 +13,11 @@ const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
 
 const app = express();
+
 const port = process.env.PORT || 5050;
 const isProduction = process.env.NODE_ENV === 'production';
 const allowInsecureDefaults = process.env.ALLOW_INSECURE_DEFAULTS === 'true';
-const maxImageDataUrlLength = Number(process.env.MAX_IMAGE_DATA_URL_LENGTH || 8 _000_000);
+const maxImageDataUrlLength = Number(process.env.MAX_IMAGE_DATA_URL_LENGTH || 8000000);
 const ADMIN_COOKIE_NAME = process.env.ADMIN_COOKIE_NAME || 'abadii_admin_session';
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173')
@@ -66,9 +67,11 @@ app.use(
     cors({
         origin(origin, callback) {
             if (!origin) return callback(null, true);
+
             if (allowedOrigins.includes(origin) || isLocalDevOrigin(origin)) {
                 return callback(null, true);
             }
+
             return callback(new Error('CORS blocked for this origin'), false);
         },
         allowedHeaders: ['Content-Type', 'Authorization'],
@@ -93,10 +96,10 @@ const pool = new Pool({
     host: process.env.DB_HOST || 'localhost',
     database: process.env.DB_NAME || 'abadii_new_db',
     password: process.env.DB_PASSWORD || '1234',
-    port: process.env.DB_PORT || 5432,
+    port: Number(process.env.DB_PORT || 5432),
 });
 
-// Test DB Connection and Initialize Table if not exists
+// Database init
 pool.query(
     `
   CREATE TABLE IF NOT EXISTS gallery (
@@ -112,54 +115,61 @@ pool.query(
 `,
     (err) => {
         if (err) {
-            console.error('Error creating table:', err.stack);
-        } else {
-            console.log('PostgreSQL Database connected & gallery table ready!');
-
-            pool.query("ALTER TABLE gallery ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'kitchen'");
-            pool.query("ALTER TABLE gallery ADD COLUMN IF NOT EXISTS type VARCHAR(50) DEFAULT 'gallery'");
-            pool.query('ALTER TABLE gallery ADD COLUMN IF NOT EXISTS details TEXT');
-
-            pool.query(
-                `
-          CREATE TABLE IF NOT EXISTS before_after (
-            id SERIAL PRIMARY KEY,
-            title VARCHAR(255),
-            before_url TEXT NOT NULL,
-            after_url TEXT NOT NULL,
-            description TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          );
-        `,
-                (err) => {
-                    if (err) console.error('Error creating before_after table:', err);
-                    else console.log('before_after table ready!');
-                }
-            );
+            console.error('Error creating gallery table:', err.stack);
+            return;
         }
+
+        console.log('PostgreSQL Database connected & gallery table ready!');
+
+        pool.query("ALTER TABLE gallery ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'kitchen'");
+        pool.query("ALTER TABLE gallery ADD COLUMN IF NOT EXISTS type VARCHAR(50) DEFAULT 'gallery'");
+        pool.query('ALTER TABLE gallery ADD COLUMN IF NOT EXISTS details TEXT');
+
+        pool.query(
+            `
+      CREATE TABLE IF NOT EXISTS before_after (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255),
+        before_url TEXT NOT NULL,
+        after_url TEXT NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `,
+            (err) => {
+                if (err) {
+                    console.error('Error creating before_after table:', err.stack);
+                } else {
+                    console.log('before_after table ready!');
+                }
+            }
+        );
     }
 );
 
-// Simple admin authentication
+// Admin authentication
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || (allowInsecureDefaults ? 'admin' : '');
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || (allowInsecureDefaults ? 'admin123' : '');
 const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || (allowInsecureDefaults ? 'dev_admin_secret_change_me' : '');
 
 if (!ADMIN_USERNAME || !ADMIN_PASSWORD || !ADMIN_JWT_SECRET) {
     const errorMessage = '[admin] Missing ADMIN_USERNAME / ADMIN_PASSWORD / ADMIN_JWT_SECRET in env.';
+
     if (isProduction || !allowInsecureDefaults) {
         throw new Error(`${errorMessage} Set ALLOW_INSECURE_DEFAULTS=true only for local fallback.`);
     }
 }
 
 function signAdminToken(username) {
-    return jwt.sign({ sub: username, role: 'admin' }, ADMIN_JWT_SECRET, { expiresIn: '7d' });
+    return jwt.sign({ sub: username, role: 'admin' }, ADMIN_JWT_SECRET, {
+        expiresIn: '7d',
+    });
 }
 
 function authenticateAdmin(req, res, next) {
     const auth = req.headers.authorization || '';
     const [scheme, bearerToken] = auth.split(' ');
-    const cookieToken = req.cookies ? .[ADMIN_COOKIE_NAME];
+    const cookieToken = req.cookies ? req.cookies[ADMIN_COOKIE_NAME] : undefined;
     const token = cookieToken || (scheme === 'Bearer' ? bearerToken : null);
 
     if (!token) {
@@ -168,9 +178,11 @@ function authenticateAdmin(req, res, next) {
 
     try {
         const payload = jwt.verify(token, ADMIN_JWT_SECRET);
+
         if (!payload || payload.role !== 'admin') {
             return res.status(403).json({ error: 'Forbidden' });
         }
+
         req.admin = payload;
         next();
     } catch (err) {
@@ -188,6 +200,7 @@ app.post('/api/admin/login', strictLimiter, (req, res) => {
 
     if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
         const token = signAdminToken(username);
+
         res.cookie(ADMIN_COOKIE_NAME, token, {
             httpOnly: true,
             secure: isProduction,
@@ -195,6 +208,7 @@ app.post('/api/admin/login', strictLimiter, (req, res) => {
             maxAge: 7 * 24 * 60 * 60 * 1000,
             path: '/',
         });
+
         return res.json({ ok: true });
     }
 
@@ -202,7 +216,10 @@ app.post('/api/admin/login', strictLimiter, (req, res) => {
 });
 
 app.get('/api/admin/verify', authenticateAdmin, (req, res) => {
-    return res.json({ valid: true, user: req.admin ? .sub || ADMIN_USERNAME });
+    return res.json({
+        valid: true,
+        user: req.admin ? req.admin.sub || ADMIN_USERNAME,
+    });
 });
 
 app.post('/api/admin/logout', (req, res) => {
@@ -212,27 +229,39 @@ app.post('/api/admin/logout', (req, res) => {
         sameSite: 'strict',
         path: '/',
     });
+
     return res.json({ ok: true });
 });
 
 // API Routes
 app.get('/api/ping', (req, res) => {
-    res.json({ status: 'ok', time: new Date() });
+    res.json({
+        status: 'ok',
+        time: new Date(),
+    });
 });
 
+// Gallery Routes
 app.get('/api/gallery', async(req, res) => {
     try {
         const result = await pool.query('SELECT * FROM gallery ORDER BY id DESC');
         res.json(result.rows);
     } catch (err) {
-        console.error(err.message);
+        console.error('Gallery fetch error:', err.message);
         res.status(500).send('Server Error');
     }
 });
 
 app.post('/api/gallery', authenticateAdmin, strictLimiter, async(req, res) => {
     try {
-        const { title, url, details, isCustom, type = 'gallery', category = 'kitchen' } = req.body;
+        const {
+            title,
+            url,
+            details,
+            isCustom,
+            type = 'gallery',
+            category = 'kitchen',
+        } = req.body;
 
         if (!isNonEmptyString(title) || !isLikelyDataUrl(url) || url.length > maxImageDataUrlLength) {
             return res.status(400).json({ error: 'Invalid gallery payload (title/url)' });
@@ -244,35 +273,7 @@ app.post('/api/gallery', authenticateAdmin, strictLimiter, async(req, res) => {
 
         res.json(newImage.rows[0]);
     } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server Error');
-    }
-});
-
-app.post('/api/system-image', authenticateAdmin, strictLimiter, async(req, res) => {
-    try {
-        const { type, url, title, details } = req.body;
-
-        if (!isNonEmptyString(type) || !isLikelyDataUrl(url) || url.length > maxImageDataUrlLength) {
-            return res.status(400).json({ error: 'Invalid system image payload' });
-        }
-
-        const exists = await pool.query('SELECT * FROM gallery WHERE type = $1', [type]);
-
-        if (exists.rows.length > 0) {
-            const updated = await pool.query(
-                'UPDATE gallery SET url = $1, title = $2, details = $3 WHERE type = $4 RETURNING *', [url, title, details, type]
-            );
-            return res.json(updated.rows[0]);
-        }
-
-        const inserted = await pool.query(
-            'INSERT INTO gallery (title, url, details, is_custom, type) VALUES ($1, $2, $3, false, $4) RETURNING *', [title, url, details, type]
-        );
-
-        res.json(inserted.rows[0]);
-    } catch (err) {
-        console.error(err.message);
+        console.error('Gallery insert error:', err.message);
         res.status(500).send('Server Error');
     }
 });
@@ -288,7 +289,7 @@ app.put('/api/gallery/:id', authenticateAdmin, strictLimiter, async(req, res) =>
 
         res.json(result.rows[0]);
     } catch (err) {
-        console.error(err.message);
+        console.error('Gallery update error:', err.message);
         res.status(500).send('Server Error');
     }
 });
@@ -296,10 +297,42 @@ app.put('/api/gallery/:id', authenticateAdmin, strictLimiter, async(req, res) =>
 app.delete('/api/gallery/:id', authenticateAdmin, strictLimiter, async(req, res) => {
     try {
         const { id } = req.params;
+
         await pool.query('DELETE FROM gallery WHERE id = $1', [id]);
+
         res.json({ message: 'Image deleted successfully' });
     } catch (err) {
-        console.error(err.message);
+        console.error('Gallery delete error:', err.message);
+        res.status(500).send('Server Error');
+    }
+});
+
+// System Image Routes
+app.post('/api/system-image', authenticateAdmin, strictLimiter, async(req, res) => {
+    try {
+        const { type, url, title, details } = req.body;
+
+        if (!isNonEmptyString(type) || !isLikelyDataUrl(url) || url.length > maxImageDataUrlLength) {
+            return res.status(400).json({ error: 'Invalid system image payload' });
+        }
+
+        const exists = await pool.query('SELECT * FROM gallery WHERE type = $1', [type]);
+
+        if (exists.rows.length > 0) {
+            const updated = await pool.query(
+                'UPDATE gallery SET url = $1, title = $2, details = $3 WHERE type = $4 RETURNING *', [url, title, details, type]
+            );
+
+            return res.json(updated.rows[0]);
+        }
+
+        const inserted = await pool.query(
+            'INSERT INTO gallery (title, url, details, is_custom, type) VALUES ($1, $2, $3, false, $4) RETURNING *', [title, url, details, type]
+        );
+
+        return res.json(inserted.rows[0]);
+    } catch (err) {
+        console.error('System image error:', err.message);
         res.status(500).send('Server Error');
     }
 });
@@ -310,7 +343,7 @@ app.get('/api/before-after', async(req, res) => {
         const result = await pool.query('SELECT * FROM before_after ORDER BY id DESC');
         res.json(result.rows);
     } catch (err) {
-        console.error(err.message);
+        console.error('Before/after fetch error:', err.message);
         res.status(500).send('Server Error');
     }
 });
@@ -333,7 +366,7 @@ app.post('/api/before-after', authenticateAdmin, strictLimiter, async(req, res) 
 
         res.json(result.rows[0]);
     } catch (err) {
-        console.error('Error saving before-after:', err.message);
+        console.error('Before/after insert error:', err.message);
         res.status(500).send('Server Error');
     }
 });
@@ -341,10 +374,12 @@ app.post('/api/before-after', authenticateAdmin, strictLimiter, async(req, res) 
 app.delete('/api/before-after/:id', authenticateAdmin, strictLimiter, async(req, res) => {
     try {
         const { id } = req.params;
+
         await pool.query('DELETE FROM before_after WHERE id = $1', [id]);
+
         res.json({ message: 'Entry deleted' });
     } catch (err) {
-        console.error(err.message);
+        console.error('Before/after delete error:', err.message);
         res.status(500).send('Server Error');
     }
 });
@@ -387,7 +422,10 @@ app.post('/api/contact', async(req, res) => {
 
         console.log('SMTP Credentials missing, logging mail content to console:');
         console.log(mailOptions.text);
-        return res.json({ message: 'تم استلام الطلب (بيانات البريد غير مهيئة للسيرفر)' });
+
+        return res.json({
+            message: 'تم استلام الطلب (بيانات البريد غير مهيئة للسيرفر)',
+        });
     } catch (err) {
         console.error('Email error:', err);
         res.status(500).json({ error: 'Failed to send email' });
@@ -396,19 +434,42 @@ app.post('/api/contact', async(req, res) => {
 
 // Frontend static serving
 const distPath = path.join(__dirname, '..', 'dist');
+const assetsPath = path.join(distPath, 'assets');
 const indexPath = path.join(distPath, 'index.html');
 
 if (fs.existsSync(distPath) && fs.existsSync(indexPath)) {
     console.log(`Serving frontend from: ${distPath}`);
 
+    if (fs.existsSync(assetsPath)) {
+        app.use(
+            '/assets',
+            express.static(assetsPath, {
+                index: false,
+                fallthrough: false,
+                maxAge: isProduction ? '1y' : 0,
+                setHeaders(res, filePath) {
+                    if (filePath.endsWith('.js')) {
+                        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+                    }
+
+                    if (filePath.endsWith('.css')) {
+                        res.setHeader('Content-Type', 'text/css; charset=utf-8');
+                    }
+                },
+            })
+        );
+    }
+
     app.use(
         express.static(distPath, {
             index: false,
             fallthrough: true,
+            maxAge: isProduction ? '1h' : 0,
             setHeaders(res, filePath) {
                 if (filePath.endsWith('.js')) {
                     res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
                 }
+
                 if (filePath.endsWith('.css')) {
                     res.setHeader('Content-Type', 'text/css; charset=utf-8');
                 }
@@ -416,11 +477,7 @@ if (fs.existsSync(distPath) && fs.existsSync(indexPath)) {
         })
     );
 
-    app.get('/assets/*', (req, res) => {
-        return res.status(404).send('Asset not found');
-    });
-
-    app.get('*', (req, res) => {
+    app.get(/^(?!\/api).*/, (req, res) => {
         return res.sendFile(indexPath);
     });
 } else {
