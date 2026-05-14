@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
+
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
@@ -15,33 +16,35 @@ const app = express();
 const port = process.env.PORT || 5050;
 const isProduction = process.env.NODE_ENV === 'production';
 const allowInsecureDefaults = process.env.ALLOW_INSECURE_DEFAULTS === 'true';
-const maxImageDataUrlLength = Number(process.env.MAX_IMAGE_DATA_URL_LENGTH || 8_000_000);
+const maxImageDataUrlLength = Number(process.env.MAX_IMAGE_DATA_URL_LENGTH || 8 _000_000);
 const ADMIN_COOKIE_NAME = process.env.ADMIN_COOKIE_NAME || 'abadii_admin_session';
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173')
     .split(',')
     .map((v) => v.trim())
     .filter(Boolean);
-const isLocalDevOrigin = (origin) => /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin || '');
+
+const isLocalDevOrigin = (origin) =>
+    /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin || '');
 
 // Rate Limiting
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 requests per windowMs
+    windowMs: 15 * 60 * 1000,
+    max: 100,
     message: {
-        message: "Too many requests from this IP, please try again after 15 minutes",
-        status: 429
+        message: 'Too many requests from this IP, please try again after 15 minutes',
+        status: 429,
     },
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
 const strictLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 100, // Increased to 100 for development
+    windowMs: 60 * 60 * 1000,
+    max: 100,
     message: {
-        message: "Too many sensitive requests from this IP, please try again after an hour",
-        status: 429
+        message: 'Too many sensitive requests from this IP, please try again after an hour',
+        status: 429,
     },
     standardHeaders: true,
     legacyHeaders: false,
@@ -49,18 +52,30 @@ const strictLimiter = rateLimit({
 
 // Middleware
 app.use(limiter);
-app.use(helmet({ crossOriginResourcePolicy: false }));
+
+app.use(
+    helmet({
+        crossOriginResourcePolicy: false,
+        contentSecurityPolicy: false,
+    })
+);
+
 app.use(compression());
-app.use(cors({
-    origin(origin, callback) {
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.includes(origin) || isLocalDevOrigin(origin)) return callback(null, true);
-        return callback(new Error('CORS blocked for this origin'), false);
-    },
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true
-}));
-// Increase limit for base64 string uploads if you are saving base64 directly
+
+app.use(
+    cors({
+        origin(origin, callback) {
+            if (!origin) return callback(null, true);
+            if (allowedOrigins.includes(origin) || isLocalDevOrigin(origin)) {
+                return callback(null, true);
+            }
+            return callback(new Error('CORS blocked for this origin'), false);
+        },
+        allowedHeaders: ['Content-Type', 'Authorization'],
+        credentials: true,
+    })
+);
+
 app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
 
@@ -82,7 +97,8 @@ const pool = new Pool({
 });
 
 // Test DB Connection and Initialize Table if not exists
-pool.query(`
+pool.query(
+    `
   CREATE TABLE IF NOT EXISTS gallery (
     id SERIAL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
@@ -93,17 +109,19 @@ pool.query(`
     type VARCHAR(50) DEFAULT 'gallery',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
-`, (err, res) => {
-    if (err) {
-        console.error("Error creating table:", err.stack);
-    } else {
-        console.log("PostgreSQL Database connected & gallery table ready!");
-        // Ensure category, type and details columns exist (for existing tables)
-        pool.query("ALTER TABLE gallery ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'kitchen'");
-        pool.query("ALTER TABLE gallery ADD COLUMN IF NOT EXISTS type VARCHAR(50) DEFAULT 'gallery'");
-        pool.query("ALTER TABLE gallery ADD COLUMN IF NOT EXISTS details TEXT");
+`,
+    (err) => {
+        if (err) {
+            console.error('Error creating table:', err.stack);
+        } else {
+            console.log('PostgreSQL Database connected & gallery table ready!');
 
-        pool.query(`
+            pool.query("ALTER TABLE gallery ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'kitchen'");
+            pool.query("ALTER TABLE gallery ADD COLUMN IF NOT EXISTS type VARCHAR(50) DEFAULT 'gallery'");
+            pool.query('ALTER TABLE gallery ADD COLUMN IF NOT EXISTS details TEXT');
+
+            pool.query(
+                `
           CREATE TABLE IF NOT EXISTS before_after (
             id SERIAL PRIMARY KEY,
             title VARCHAR(255),
@@ -112,15 +130,17 @@ pool.query(`
             description TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
           );
-        `, (err) => {
-            if (err) console.error("Error creating before_after table:", err);
-            else console.log("before_after table ready!");
-        });
+        `,
+                (err) => {
+                    if (err) console.error('Error creating before_after table:', err);
+                    else console.log('before_after table ready!');
+                }
+            );
+        }
     }
-});
+);
 
-
-// Simple admin authentication (env-based user + JWT)
+// Simple admin authentication
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || (allowInsecureDefaults ? 'admin' : '');
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || (allowInsecureDefaults ? 'admin123' : '');
 const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || (allowInsecureDefaults ? 'dev_admin_secret_change_me' : '');
@@ -139,11 +159,13 @@ function signAdminToken(username) {
 function authenticateAdmin(req, res, next) {
     const auth = req.headers.authorization || '';
     const [scheme, bearerToken] = auth.split(' ');
-    const cookieToken = req.cookies?.[ADMIN_COOKIE_NAME];
+    const cookieToken = req.cookies ? .[ADMIN_COOKIE_NAME];
     const token = cookieToken || (scheme === 'Bearer' ? bearerToken : null);
+
     if (!token) {
         return res.status(401).json({ error: 'Missing admin token' });
     }
+
     try {
         const payload = jwt.verify(token, ADMIN_JWT_SECRET);
         if (!payload || payload.role !== 'admin') {
@@ -156,47 +178,48 @@ function authenticateAdmin(req, res, next) {
     }
 }
 
-// Admin login (returns JWT token)
+// Admin login
 app.post('/api/admin/login', strictLimiter, (req, res) => {
     const { username, password } = req.body || {};
+
     if (!isNonEmptyString(username) || !isNonEmptyString(password)) {
         return res.status(400).json({ error: 'Username and password are required' });
     }
+
     if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
         const token = signAdminToken(username);
         res.cookie(ADMIN_COOKIE_NAME, token, {
             httpOnly: true,
             secure: isProduction,
             sameSite: 'strict',
-            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-            path: '/'
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+            path: '/',
         });
         return res.json({ ok: true });
     }
+
     return res.status(401).json({ error: 'Invalid credentials' });
 });
 
-// Admin token verification
 app.get('/api/admin/verify', authenticateAdmin, (req, res) => {
-    return res.json({ valid: true, user: req.admin?.sub || ADMIN_USERNAME });
+    return res.json({ valid: true, user: req.admin ? .sub || ADMIN_USERNAME });
 });
 
-// Admin logout
 app.post('/api/admin/logout', (req, res) => {
     res.clearCookie(ADMIN_COOKIE_NAME, {
         httpOnly: true,
         secure: isProduction,
         sameSite: 'strict',
-        path: '/'
+        path: '/',
     });
     return res.json({ ok: true });
 });
 
+// API Routes
+app.get('/api/ping', (req, res) => {
+    res.json({ status: 'ok', time: new Date() });
+});
 
-// Routes
-app.get('/api/ping', (req, res) => res.json({ status: 'ok', time: new Date() }));
-
-// Get all images (gallery + system)
 app.get('/api/gallery', async(req, res) => {
     try {
         const result = await pool.query('SELECT * FROM gallery ORDER BY id DESC');
@@ -207,10 +230,10 @@ app.get('/api/gallery', async(req, res) => {
     }
 });
 
-// Add a new gallery image
 app.post('/api/gallery', authenticateAdmin, strictLimiter, async(req, res) => {
     try {
         const { title, url, details, isCustom, type = 'gallery', category = 'kitchen' } = req.body;
+
         if (!isNonEmptyString(title) || !isLikelyDataUrl(url) || url.length > maxImageDataUrlLength) {
             return res.status(400).json({ error: 'Invalid gallery payload (title/url)' });
         }
@@ -226,45 +249,55 @@ app.post('/api/gallery', authenticateAdmin, strictLimiter, async(req, res) => {
     }
 });
 
-// Update/Upsert system images (hero, showcase)
 app.post('/api/system-image', authenticateAdmin, strictLimiter, async(req, res) => {
     try {
-        const { type, url, title, details } = req.body; // type=hero or showcase
+        const { type, url, title, details } = req.body;
+
         if (!isNonEmptyString(type) || !isLikelyDataUrl(url) || url.length > maxImageDataUrlLength) {
             return res.status(400).json({ error: 'Invalid system image payload' });
         }
 
-        // First check if type already exists
         const exists = await pool.query('SELECT * FROM gallery WHERE type = $1', [type]);
 
         if (exists.rows.length > 0) {
-            // Update existing
             const updated = await pool.query(
                 'UPDATE gallery SET url = $1, title = $2, details = $3 WHERE type = $4 RETURNING *', [url, title, details, type]
             );
-            res.json(updated.rows[0]);
-        } else {
-            // Insert new system image
-            const inserted = await pool.query(
-                'INSERT INTO gallery (title, url, details, is_custom, type) VALUES ($1, $2, $3, false, $4) RETURNING *', [title, url, details, type]
-            );
-            res.json(inserted.rows[0]);
+            return res.json(updated.rows[0]);
         }
+
+        const inserted = await pool.query(
+            'INSERT INTO gallery (title, url, details, is_custom, type) VALUES ($1, $2, $3, false, $4) RETURNING *', [title, url, details, type]
+        );
+
+        res.json(inserted.rows[0]);
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server Error');
     }
 });
 
-// Update a gallery image (title, details, category)
 app.put('/api/gallery/:id', authenticateAdmin, strictLimiter, async(req, res) => {
     try {
         const { id } = req.params;
         const { title, details, category } = req.body;
+
         const result = await pool.query(
             'UPDATE gallery SET title = $1, details = $2, category = $3 WHERE id = $4 RETURNING *', [title, details, category, id]
         );
+
         res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server Error');
+    }
+});
+
+app.delete('/api/gallery/:id', authenticateAdmin, strictLimiter, async(req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query('DELETE FROM gallery WHERE id = $1', [id]);
+        res.json({ message: 'Image deleted successfully' });
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server Error');
@@ -284,21 +317,23 @@ app.get('/api/before-after', async(req, res) => {
 
 app.post('/api/before-after', authenticateAdmin, strictLimiter, async(req, res) => {
     try {
-        console.log("Saving before-after project:", req.body.title);
         const { title, before_url, after_url, description } = req.body;
+
         if (!isLikelyDataUrl(before_url) || !isLikelyDataUrl(after_url)) {
             return res.status(400).json({ error: 'Invalid before/after image payload' });
         }
+
         if (before_url.length > maxImageDataUrlLength || after_url.length > maxImageDataUrlLength) {
             return res.status(400).json({ error: 'Image is too large' });
         }
+
         const result = await pool.query(
             'INSERT INTO before_after (title, before_url, after_url, description) VALUES ($1, $2, $3, $4) RETURNING *', [title, before_url, after_url, description]
         );
-        console.log("Saved successfully ID:", result.rows[0].id);
+
         res.json(result.rows[0]);
     } catch (err) {
-        console.error("Error saving before-after:", err.message);
+        console.error('Error saving before-after:', err.message);
         res.status(500).send('Server Error');
     }
 });
@@ -314,76 +349,84 @@ app.delete('/api/before-after/:id', authenticateAdmin, strictLimiter, async(req,
     }
 });
 
-// Delete an image
-app.delete('/api/gallery/:id', authenticateAdmin, strictLimiter, async(req, res) => {
-    try {
-        const { id } = req.params;
-        await pool.query('DELETE FROM gallery WHERE id = $1', [id]);
-        res.json({ message: 'Image deleted successfully' });
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server Error');
-    }
-});
-
-// Contact Form Hook - Send Email
+// Contact Form Hook
 app.post('/api/contact', async(req, res) => {
     const { name, phone, service, message } = req.body;
+
     if (!isNonEmptyString(name) || !isNonEmptyString(phone)) {
         return res.status(400).json({ error: 'Name and phone are required' });
     }
 
-    console.log("Received contact form:", { name, phone, service });
-
-    // Configure Nodemailer (You should add SMTP credentials to your .env)
     const transporter = nodemailer.createTransport({
-        service: 'gmail', // Or your SMTP provider
+        service: 'gmail',
         auth: {
             user: process.env.EMAIL_USER || 'your-email@gmail.com',
-            pass: process.env.EMAIL_PASS || 'your-password'
-        }
+            pass: process.env.EMAIL_PASS || 'your-password',
+        },
     });
 
     const mailOptions = {
         from: process.env.EMAIL_USER || 'your-email@gmail.com',
-        to: 'fadelfadel2211@gmail.com',
+        to: process.env.CONTACT_TO_EMAIL || 'fadelfadel2211@gmail.com',
         subject: `طلب جديد من الموقع: ${name}`,
         text: `
-        لديك طلب جديد من الموقع:
-        
-        الاسم: ${name}
-        رقم الجوال: ${phone}
-        الخدمة المطلوبة: ${service}
-        الرسالة: ${message}
-        `
+لديك طلب جديد من الموقع:
+
+الاسم: ${name}
+رقم الجوال: ${phone}
+الخدمة المطلوبة: ${service || '-'}
+الرسالة: ${message || '-'}
+`,
     };
 
     try {
         if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
             await transporter.sendMail(mailOptions);
-            res.json({ message: 'تم إرسال الطلب بنجاح!' });
-        } else {
-            console.log("SMTP Credentials missing, logging mail content to console:");
-            console.log(mailOptions.text);
-            // Even if no credentials, return success for testing UI, 
-            // but the actual email won't be sent until credentials are added.
-            res.json({ message: 'تم استلام الطلب (بيانات البريد غير مهيئة للسيرفر)' });
+            return res.json({ message: 'تم إرسال الطلب بنجاح!' });
         }
+
+        console.log('SMTP Credentials missing, logging mail content to console:');
+        console.log(mailOptions.text);
+        return res.json({ message: 'تم استلام الطلب (بيانات البريد غير مهيئة للسيرفر)' });
     } catch (err) {
-        console.error("Email error:", err);
+        console.error('Email error:', err);
         res.status(500).json({ error: 'Failed to send email' });
     }
 });
 
-// Serve built frontend in production/single-host deployments.
+// Frontend static serving
 const distPath = path.join(__dirname, '..', 'dist');
-if (fs.existsSync(distPath)) {
-    app.use(express.static(distPath));
-    app.get(/^(?!\/api).*/, (req, res) => {
-        res.sendFile(path.join(distPath, 'index.html'));
+const indexPath = path.join(distPath, 'index.html');
+
+if (fs.existsSync(distPath) && fs.existsSync(indexPath)) {
+    console.log(`Serving frontend from: ${distPath}`);
+
+    app.use(
+        express.static(distPath, {
+            index: false,
+            fallthrough: true,
+            setHeaders(res, filePath) {
+                if (filePath.endsWith('.js')) {
+                    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+                }
+                if (filePath.endsWith('.css')) {
+                    res.setHeader('Content-Type', 'text/css; charset=utf-8');
+                }
+            },
+        })
+    );
+
+    app.get('/assets/*', (req, res) => {
+        return res.status(404).send('Asset not found');
     });
+
+    app.get('*', (req, res) => {
+        return res.sendFile(indexPath);
+    });
+} else {
+    console.warn(`Frontend dist not found at: ${distPath}`);
 }
 
 app.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}`);
+    console.log(`Server running on port ${port}`);
 });
