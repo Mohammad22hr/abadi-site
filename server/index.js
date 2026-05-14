@@ -429,46 +429,15 @@ app.post('/api/contact', async(req, res) => {
 // Frontend static serving
 // Frontend static serving
 const distPath = path.join(__dirname, '..', 'dist');
-const assetsPath = path.join(distPath, 'assets');
 const indexPath = path.join(distPath, 'index.html');
-
-console.log('--- Frontend static debug ---');
-console.log('distPath:', distPath);
-console.log('dist exists:', fs.existsSync(distPath));
-console.log('index exists:', fs.existsSync(indexPath));
-console.log('assetsPath:', assetsPath);
-console.log('assets exists:', fs.existsSync(assetsPath));
-
-if (fs.existsSync(assetsPath)) {
-    console.log('assets files:', fs.readdirSync(assetsPath));
-}
 
 if (fs.existsSync(distPath) && fs.existsSync(indexPath)) {
     console.log(`Serving frontend from: ${distPath}`);
 
-    app.use(
-        '/assets',
-        express.static(assetsPath, {
-            index: false,
-            fallthrough: false,
-            setHeaders(res, filePath) {
-                if (filePath.endsWith('.js')) {
-                    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-                }
-
-                if (filePath.endsWith('.css')) {
-                    res.setHeader('Content-Type', 'text/css; charset=utf-8');
-                }
-            },
-        })
-    );
-
-    app.use(
-        express.static(distPath, {
-            index: false,
-            fallthrough: true,
-        })
-    );
+    app.use(express.static(distPath, {
+        index: false,
+        fallthrough: true,
+    }));
 
     app.get(/^(?!\/api).*/, (req, res) => {
         return res.sendFile(indexPath);
